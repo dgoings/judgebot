@@ -15,7 +15,7 @@ var bot = controller.spawn({
 // Flat table matching the names of all our added slack emojis
 // Would be nice to find a way to not have this hardcoded, maybe through
 // the Slack api?
-var manaSymbols = {
+var gameSymbols = {
   "W": "white",
   "U": "blue",
   "B": "black",
@@ -52,7 +52,7 @@ var manacostToEmoji = function(manacost) {
   do {
     result = re.exec(cost);
     symbol = result[1];
-    convertedCost += (manaSymbols[symbol]) ? ':'+manaSymbols[symbol]+':' : result[0];
+    convertedCost += (gameSymbols[symbol]) ? ':'+gameSymbols[symbol]+':' : result[0];
   } while (re.lastIndex < cost.length);
 
   return convertedCost;
