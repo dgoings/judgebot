@@ -98,6 +98,9 @@ var getDetailedCardData = function(cardname, page) {
   });
 }
 
+// expects a card name and does a quick search for that card,
+// returning a shallow card object that we can use to retrieve
+// more data with getDetailedCardData
 var simpleCardSearch = function(cardname) {
   console.log("Searching for card " + cardname);
   return new Promise(function(resolve, reject) {
@@ -149,23 +152,35 @@ var constructReplyMessage = function(card) {
 // can't do multiple cards in a single message
 controller.hears(['!(\\w+[\\w\\s,-\.]*)'],'direct_message,direct_mention,mention',function(bot,message) {
 
-  var matches = message.text.match(/!(\w+[\w\s-,_\.]*)/i);
-  // we shouldn't ever need a cardname longer than 5 words
-  var cardname = matches[1].trim().split(' ').splice(0,4).join(' ');
-  var card, cardDetail;
-  card = simpleCardSearch(encodeURIComponent(cardname));
-  card.then(function(card) {
-    console.log("Found card: ", card);
-    cardDetail = getDetailedCardData(card.id);
-    cardDetail.then(function(detailedCard) {
-      console.log("Replying with detailed info");
-      bot.reply(message, constructReplyMessage(detailedCard));
+  var searchText = message.text,
+    cardnames = [],
+    re = /!(\w+[\w\s-,_\.]*)/ig;
+
+  // loop through all the instances of !cardname in the message
+  do {
+    result = re.exec(searchText);
+    // we shouldn't ever need a cardname longer than 5 words
+    cardnames.push(result[1].trim().replace('.', '').split(' ').splice(0,4).join(' '));
+  } while (re.lastIndex < searchText.length);
+
+  console.log("Cards to search: ", cardnames);
+
+  // for each cardname found, call the api to find that card
+  cardnames.forEach(function(cardname) {
+    card = simpleCardSearch(encodeURIComponent(cardname));
+    card.then(function(card) {
+      console.log("Found card: ", card);
+      cardDetail = getDetailedCardData(card.id);
+      cardDetail.then(function(detailedCard) {
+        console.log("Replying with detailed info");
+        bot.reply(message, constructReplyMessage(detailedCard));
+      }).catch(function(err) {
+        console.log("Replying with fallback info");
+        bot.reply(message, constructReplyMessage(card));
+      });
     }).catch(function(err) {
-      console.log("Replying with fallback info");
-      bot.reply(message, constructReplyMessage(card));
+      // this should probably be a message to the chat that we couldn't find the card(s)
+      console.log("Error: ", err);
     });
-  }).catch(function(err) {
-    // this should probably be a message to the chat that we couldn't find the card(s)
-    console.log("Error: ", err);
   });
 });
