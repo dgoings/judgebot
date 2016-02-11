@@ -43,6 +43,7 @@ var gameSymbols = {
 
 // takes an oracle text mana cost and replaces 
 // {cost} with the appropriate emoji, if available
+// in the future this should expand to parse card text as well
 var manacostToEmoji = function(manacost) {
   var re = /\{(.{1,3})\}/g;
   var cost = manacost,
@@ -71,6 +72,8 @@ var getDetailedCardData = function(cardname, page) {
       .then(function onResult(res) {
         if (res.status == 200 && res.body.results.length) {
           var results = res.body.results, match;
+          // loop through all the results and see if any of the have the
+          // exact name as the original search
           for(var i = 0; i < results.length; i++) {
             if (results[i].name == cardname) { match = results[i]; break; }
           }
@@ -78,6 +81,8 @@ var getDetailedCardData = function(cardname, page) {
             console.log("Found detailed match");
             resolve(match);
           } else if (res.body.metadata.resultSet.pages > pageNum) {
+            // if there is more than one page of results, go fetch the next
+            // page and try again
             var card = getDetailedCardData(cardname, page++);
             card.then(function(val) {
               resolve(val);
@@ -111,6 +116,8 @@ var simpleCardSearch = function(cardname) {
           console.log("Found a card");
           resolve(res.body[0]);
         } else if (cardname.search('%20') > -1) {
+          // if the cardname is multiple words and we didn't find a match,
+          // trim the last word off the name and search for the shorter name
           var shorterName = cardname.split('%20').slice(0,-1).join('%20');
           var card = simpleCardSearch(shorterName);
           card.then(function(val) {
@@ -144,12 +151,13 @@ var constructReplyMessage = function(card) {
   if (card.manaCost) fallback += ' ' + card.manaCost; 
   fallback += ' | ' + card.type;
 
+  // we have to use slack attachments because otherwise we can't send back
+  // properly formatted urls and such
   return {attachments: [{ fallback: fallback, pretext: reply }]};
 }
 
 // listens for cardnames prepended with a !
-// Right now just grabs everything after the !, no smart parsing,
-// can't do multiple cards in a single message
+// currently not listening ambient to keep it out of all our channels
 controller.hears(['!(\\w+[\\w\\s,-\.]*)'],'direct_message,direct_mention,mention',function(bot,message) {
 
   var searchText = message.text,
@@ -160,6 +168,7 @@ controller.hears(['!(\\w+[\\w\\s,-\.]*)'],'direct_message,direct_mention,mention
   do {
     result = re.exec(searchText);
     // we shouldn't ever need a cardname longer than 5 words
+    // and even 5 might be too long
     cardnames.push(result[1].trim().replace('.', '').split(' ').splice(0,4).join(' '));
   } while (re.lastIndex < searchText.length);
 
