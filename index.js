@@ -62,22 +62,23 @@ var manacostToEmoji = function(manacost) {
 // and parses through the results for that card id, returning
 // the full details of that card. Also pages through
 // results recursively if necessary.
-var getDetailedCardData = function(name, page) {
+var getDetailedCardData = function(cardname, page) {
+  console.log("Searching for detailed info for " + cardname);
   var pageNum = (page)? page : 1;
   return new Promise(function(resolve, reject) {
-    request.get('https://magidex.com/api/search?q='+name+'&p='+pageNum)
+    request.get('https://magidex.com/api/search?q='+cardname+'&p='+pageNum)
       .set('Accept', 'application/json')
-      .end()
       .then(function onResult(res) {
         if (res.status == 200 && res.body.results.length) {
           var results = res.body.results, match;
           for(var i = 0; i < results.length; i++) {
-            if (results[i].name == name) { match = results[i]; break; }
+            if (results[i].name == cardname) { match = results[i]; break; }
           }
           if (match) {
+            console.log("Found detailed match");
             resolve(match);
           } else if (res.body.metadata.resultSet.pages > pageNum) {
-            var card = getDetailedCardData(name, page++);
+            var card = getDetailedCardData(cardname, page++);
             card.then(function(val) {
               resolve(val);
             }).catch(function(err) {
@@ -87,9 +88,39 @@ var getDetailedCardData = function(name, page) {
             reject("No match found");
           }
         } else {
+          console.log("No cards found " + res.status);
           reject(res.status);
         }
       }, function onError(err) {
+        console.log("Error search for cards " + err.status);
+        reject(err.status);
+      });
+  });
+}
+
+var simpleCardSearch = function(cardname) {
+  console.log("Searching for card " + cardname);
+  return new Promise(function(resolve, reject) {
+    request.get('https://magidex.com/api/typeahead?q='+cardname)
+      .set('Accept', 'application/json')
+      .then(function onResult(res) {
+        if (res.status == 200 && res.body.length) {
+          console.log("Found a card");
+          resolve(res.body[0]);
+        } else if (cardname.search('%20') > -1) {
+          var shorterName = cardname.split('%20').slice(0,-1).join('%20');
+          var card = simpleCardSearch(shorterName);
+          card.then(function(val) {
+            resolve(val);
+          }).catch(function(err) {
+            reject(err);
+          });
+        } else {
+          console.log("Couldn't find " + cardname);
+          reject("No card found with that name.")
+        }
+      }, function onError(err) {
+        console.log("Error searching for card " + err.status);
         reject(err.status);
       });
   });
@@ -102,7 +133,7 @@ var constructReplyMessage = function(card) {
   var reply = '<http://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid='+card.multiverseid+'|'+card.name+'>';
   if (card.manaCost) reply += ' ' + manacostToEmoji(card.manaCost);
   reply += ' | ' + card.type;
-  if (card.power !== null && card.toughness !== null) reply += ' | ' + card.power + '/' + card.toughness;
+  if (card.power && card.toughness) reply += ' | ' + card.power + '/' + card.toughness;
   if (card.text) reply += '\n' + card.text;
 
   // Needed for clients that don't allow rich formatting
@@ -119,26 +150,22 @@ var constructReplyMessage = function(card) {
 controller.hears(['!(\\w+[\\w\\s,-\.]*)'],'direct_message,direct_mention,mention',function(bot,message) {
 
   var matches = message.text.match(/!(\w+[\w\s-,_\.]*)/i);
-  var cardname = encodeURIComponent(matches[1].trim());
+  // we shouldn't ever need a cardname longer than 5 words
+  var cardname = matches[1].trim().split(' ').splice(0,4).join(' ');
   var card, cardDetail;
-  request.get('https://magidex.com/api/typeahead?q='+cardname)
-    .set('Accept', 'application/json')
-    .end()
-    .then(function onResult(res) {
-      if (res.status == 200 && res.body.length) {
-        card = res.body[0]; // fallback if we can't match the full card
-        cardDetail = getDetailedCardData(card.id);
-        cardDetail.then(function(card) {
-          // note the card here for the message is the returned value from getDetailedCardData
-          bot.reply(message, constructReplyMessage(card));
-        }).catch(function(err) {
-          // the card here for the message is our original fallback
-          // yay function scope
-          bot.reply(message, constructReplyMessage(card));
-        });
-      }
-    }, function onError(err) {
-      // this should probably be a message to the chat that we couldn't find the card(s)
-      console.log("Error: " + err);
+  card = simpleCardSearch(encodeURIComponent(cardname));
+  card.then(function(card) {
+    console.log("Found card: ", card);
+    cardDetail = getDetailedCardData(card.id);
+    cardDetail.then(function(detailedCard) {
+      console.log("Replying with detailed info");
+      bot.reply(message, constructReplyMessage(detailedCard));
+    }).catch(function(err) {
+      console.log("Replying with fallback info");
+      bot.reply(message, constructReplyMessage(card));
     });
+  }).catch(function(err) {
+    // this should probably be a message to the chat that we couldn't find the card(s)
+    console.log("Error: ", err);
+  });
 });
